@@ -3,16 +3,14 @@ package com.badr.cache.storage
 import com.badr.cache.core.Future
 import com.badr.cache.core.Promise
 import com.badr.cache.extensions.safe
-import java.util.Collections.synchronizedCollection
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.jvm.Throws
 
 class Storage {
     private val evictionPeriodic = Executors.newScheduledThreadPool(1)
     private val ioThread = Executors.newFixedThreadPool(1)
 
-    private val storage = synchronizedCollection(arrayListOf<Data<Any>>())
+    private val storage: HashMap<String, Data<Any>> = hashMapOf()
 
     private val evictionRunnable: Runnable = Runnable {
         safe {
@@ -49,32 +47,19 @@ class Storage {
     fun <T : Any> add(key: String, value: T, lifeTime: Long = 0, unit: TimeUnit = TimeUnit.SECONDS): Future<Boolean> {
         val promise = Promise.promise<Boolean>()
 
-        ioThread.submit {
-
-            val iterator = storage.iterator()
-            while (iterator.hasNext()) {
-                val data = iterator.next()
-                if (data.key == key) {
-                    data.setValue(value).updateAdded().setLifeTime(lifeTime).setTimeUnit(unit)
-                    promise.complete(true)
-                    return@submit
-                }
-            }
-
-            val added = storage.add(
-                Data<Any>()
+        try {
+            ioThread.submit {
+                storage[key] = Data<Any>()
                     .setKey(key)
                     .setValue(value)
-                    .setLifeTime(lifeTime)
-                    .setTimeUnit(unit)
-            )
+                    .updateAddedTime()
+                    .setTTL(lifeTime)
+                    .setTTLUnit(unit)
 
-            if (added) {
                 promise.complete(true)
-            } else {
-                promise.fail("Could not add $key to cache storage")
             }
-
+        } catch (e: Exception) {
+            promise.fail(e)
         }
 
         return promise.future()
@@ -84,25 +69,29 @@ class Storage {
     fun <T> get(key: String): Future<T> {
         val promise = Promise.promise<T>()
 
+        if (storage.isEmpty()) {
+            promise.fail("cache storage is empty")
+            return promise.future()
+        }
+
         try {
             ioThread.submit {
-
-                val iterator = storage.iterator()
-                while (iterator.hasNext()) {
-                    val data = iterator.next()
-                    if (data.key == key) {
-                        try {
+                if (storage.containsKey(key)) {
+                    val data = storage[key]
+                    try {
+                        if (data != null) {
                             val cast = data.value as T
-                            data.updateAdded()
+                            data.updateAddedTime()
                             promise.complete(cast)
-                        } catch (e: Exception) {
-                            promise.fail(e)
+                        } else {
+                            promise.fail("Could not find any value for $key")
                         }
-                        return@submit
+                    } catch (e: Exception) {
+                        promise.fail(e)
                     }
+                } else {
+                    promise.fail("Could not find any value for $key")
                 }
-
-                promise.fail("Could not find any value for $key")
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -115,16 +104,20 @@ class Storage {
     fun <T> get(predicate: (T) -> Boolean): Future<T> {
         val promise = Promise.promise<T>()
 
+        if (storage.isEmpty()) {
+            promise.fail("cache storage is empty")
+            return promise.future()
+        }
+
         try {
             ioThread.submit {
-
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
-                    val data = iterator.next()
+                    val data = iterator.next().value
                     safe {
                         val cast = data.value as T
                         if (predicate(cast)) {
-                            data.updateAdded()
+                            data.updateAddedTime()
                             promise.complete(cast)
                             return@safe
                         }
@@ -143,26 +136,23 @@ class Storage {
     fun get(vararg keys: String): Future<HashMap<String, Any>> {
         val promise = Promise.promise<HashMap<String, Any>>()
 
-        if (keys.isEmpty()) {
+        if (storage.isEmpty()) {
             promise.fail("cache storage is empty")
             return promise.future()
         }
 
         try {
             ioThread.submit {
-
                 val hashMap = hashMapOf<String, Any>()
-                val iterator = storage.iterator()
-                while (iterator.hasNext()) {
-                    val data = iterator.next()
-                    if (data.key in keys) {
-                        data.updateAdded()
+                for (key in keys) {
+                    val data = storage[key]
+                    if (data != null) {
+                        data.updateAddedTime()
                         hashMap[data.key] = data.value
                     }
                 }
 
                 promise.complete(hashMap)
-
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -171,28 +161,26 @@ class Storage {
         return promise.future()
     }
 
-    fun getKeys(vararg regexs: Regex): Future<List<String>> {
+    fun getKeys(vararg regexes: Regex): Future<List<String>> {
         val promise = Promise.promise<List<String>>()
 
-        if (regexs.isEmpty()) {
+        if (regexes.isEmpty()) {
             promise.complete(emptyList())
             return promise.future()
         }
 
         try {
             ioThread.submit {
-
                 val keys = mutableListOf<String>()
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
                     val data = iterator.next()
-                    for (regex in regexs) {
+                    for (regex in regexes) {
                         if (regex.containsMatchIn(data.key)) keys.add(data.key)
                     }
                 }
 
                 promise.complete(keys)
-
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -206,7 +194,6 @@ class Storage {
 
         try {
             ioThread.submit {
-
                 val keys = mutableListOf<String>()
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
@@ -215,7 +202,6 @@ class Storage {
                 }
 
                 promise.complete(keys)
-
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -241,18 +227,16 @@ class Storage {
 
         try {
             ioThread.submit {
-
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
                     val data = iterator.next()
-                    if (data.key.equals(key, true)) {
+                    if (data.key.equals(key, false)) {
                         promise.complete(true)
                         return@submit
                     }
                 }
 
                 promise.complete(false)
-
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -268,14 +252,14 @@ class Storage {
 
         val iterator = storage.iterator()
         while (iterator.hasNext()) {
-            val data = iterator.next()
+            val data = iterator.next().value
 
-            if (data.lifeTime <= 0L) {
+            if (data.addedTime <= 0L) {
                 continue
             }
 
-            val lifeTime = data.timeUnit.toSeconds(data.lifeTime)
-            if ((data.added + lifeTime) <= (System.currentTimeMillis() / 1000)) {
+            val lifeTime = data.ttlUnit.toSeconds(data.ttl)
+            if ((data.addedTime + lifeTime) <= (System.currentTimeMillis() / 1000)) {
                 iterator.remove()
             }
         }
@@ -284,31 +268,25 @@ class Storage {
     fun evict(vararg keys: String): Future<Int> {
         val promise = Promise.promise<Int>()
 
-        if (keys.isEmpty()) {
+        if (storage.isEmpty()) {
             promise.complete(0)
             return promise.future()
         }
 
         try {
             ioThread.submit {
-
                 var count = 0
-                val iterator = storage.iterator()
-                while (iterator.hasNext()) {
-                    val data = iterator.next()
-                    if (data.key in keys) {
-                        iterator.remove()
-                        count++
-
-                        if (keys.size == 1) {
-                            promise.complete(count)
-                            return@submit
+                for (key in keys) {
+                    if (storage.containsKey(key)) {
+                        val data = storage[key]
+                        if (data != null) {
+                            storage.remove(key)
+                            count++
                         }
                     }
                 }
 
                 promise.complete(count)
-
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -320,14 +298,13 @@ class Storage {
     fun evictAllExcept(vararg keys: String): Future<Int> {
         val promise = Promise.promise<Int>()
 
-        if (keys.isEmpty()) {
+        if (storage.isEmpty()) {
             promise.complete(0)
             return promise.future()
         }
 
         try {
             ioThread.submit {
-
                 var count = 0
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
@@ -339,7 +316,6 @@ class Storage {
                 }
 
                 promise.complete(count)
-
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -353,7 +329,6 @@ class Storage {
 
         try {
             ioThread.submit {
-
                 var count = 0
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
@@ -365,7 +340,6 @@ class Storage {
                 }
 
                 promise.complete(count)
-
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -374,13 +348,13 @@ class Storage {
         return promise.future()
     }
 
-  companion object {
-    private var storage: Storage = Storage()
+    companion object {
+        private var storage: Storage = Storage()
 
-    fun getDefault(): Storage {
-      return storage
+        fun getDefault(): Storage {
+            return storage
+        }
+
+        fun newInstance(): Storage = Storage()
     }
-
-    fun newInstance(): Storage = Storage()
-  }
 }
