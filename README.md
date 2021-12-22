@@ -9,7 +9,7 @@
 > ```
 ```kotlin
 val posts: Storage = Storage.newInstance()
-post.add(key, value, time, timeUnit).onComplete { ar ->
+posts.add(key, value, time, timeUnit).onComplete { ar ->
     if (ar.succeeded()) {
         // do something
     } else {
@@ -24,7 +24,7 @@ post.add(key, value, time, timeUnit).onComplete { ar ->
 > ```
 ```kotlin
 val posts: Storage = Storage.newInstance()
-post.get<Post>(title).onComplete { ar ->
+posts.get<Post>(title).onComplete { ar ->
     if (ar.succeeded()) {
         // do something
     } else {
@@ -39,7 +39,7 @@ post.get<Post>(title).onComplete { ar ->
 > ```
 ```kotlin
 val posts: Storage = Storage.newInstance()
-post.get<Post> { p -> p.title == title }.onComplete { ar ->
+posts.get<Post> { p -> p.title == title }.onComplete { ar ->
     if (ar.succeeded()) {
         // do something
     } else {
@@ -54,7 +54,7 @@ post.get<Post> { p -> p.title == title }.onComplete { ar ->
 > ```
 ```kotlin
 val posts: Storage = Storage.newInstance()
-post.get(title1, title2, title3).onComplete { ar ->
+posts.get(title1, title2, title3).onComplete { ar ->
     if (ar.succeeded()) {
         // do something
     } else {
@@ -69,7 +69,7 @@ post.get(title1, title2, title3).onComplete { ar ->
 > ```
 ```kotlin
 val posts: Storage = Storage.newInstance()
-post.get("Posts\\.${id}".toRegex()).onComplete { ar ->
+posts.get("Posts\\.${id}".toRegex()).onComplete { ar ->
     if (ar.succeeded()) {
         // do something
     } else {
@@ -84,7 +84,7 @@ post.get("Posts\\.${id}".toRegex()).onComplete { ar ->
 > ```
 ```kotlin
 val posts: Storage = Storage.newInstance()
-post.evict(title).onComplete { ar ->
+posts.evict(title).onComplete { ar ->
     if (ar.succeeded()) {
         // do something
     } else {
