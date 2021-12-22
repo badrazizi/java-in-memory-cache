@@ -1,6 +1,6 @@
 # Single Thread In-Memory Cache
 
-### Async generic thread-safe cache
+### Asynchronous generic thread-safe in-memory cache
 
 ### usage
 - add
