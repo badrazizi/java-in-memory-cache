@@ -26,24 +26,25 @@ class Storage {
 
     fun isRunning(): Boolean = !ioThread.isTerminated && !evictionPeriodic.isTerminated
 
-    fun shutDown() {
+    @JvmOverloads
+    fun shutDown(timeout: Long = 0, unit: TimeUnit = TimeUnit.SECONDS) {
         evictionPeriodic.shutdown()
         ioThread.shutdown()
+
+        if (timeout > 0) {
+            evictionPeriodic.awaitTermination(timeout, unit)
+            ioThread.awaitTermination(timeout, unit)
+        }
     }
 
-    @Throws(IllegalStateException::class)
-    fun shutDownNow(timeout: Long, unit: TimeUnit): List<Runnable> {
+    fun shutDownNow(): List<Runnable> {
         val l1 = evictionPeriodic.shutdownNow()
         val l2 = ioThread.shutdownNow()
-
-        check(timeout > 0)
-
-        evictionPeriodic.awaitTermination(timeout, unit)
-        ioThread.awaitTermination(timeout, unit)
 
         return l1 + l2
     }
 
+    @JvmOverloads
     fun <T : Any> add(key: String, value: T, lifeTime: Long = 0, unit: TimeUnit = TimeUnit.SECONDS): Future<Boolean> {
         val promise = Promise.promise<Boolean>()
 
