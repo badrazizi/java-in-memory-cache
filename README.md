@@ -1,6 +1,12 @@
-# Single Thread In-Memory Cache
-
+# Single Thread In-Memory Cache for Java(JVM)
 ### Asynchronous generic thread-safe in-memory cache
+
+### Features:
+* provides basic caching functionalities like: `add`, `get` and `evict`, etc.
+* time-based expiration of entries, measured since last access or last write.
+* result returned on asynchronous promise.
+* all operations on this cache are thread-safe.
+* does not block caller thread.
 
 ### usage
 - add
