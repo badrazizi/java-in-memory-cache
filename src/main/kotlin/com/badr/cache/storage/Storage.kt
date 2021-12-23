@@ -5,6 +5,7 @@ import com.badr.cache.core.Promise
 import com.badr.cache.extensions.safe
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.jvm.Throws
 
 class Storage {
     private val evictionPeriodic = Executors.newScheduledThreadPool(1)
@@ -14,7 +15,9 @@ class Storage {
 
     private val evictionRunnable: Runnable = Runnable {
         safe {
-            ioThread.submit { evict() }
+            ioThread.submit {
+                evict()
+            }
         }
     }
 
@@ -26,15 +29,21 @@ class Storage {
 
     fun isRunning(): Boolean = !ioThread.isTerminated && !evictionPeriodic.isTerminated
 
+    fun shutDown() {
+        evictionPeriodic.shutdown()
+        ioThread.shutdown()
+    }
+
     @JvmOverloads
-    fun shutDown(timeout: Long = 0, unit: TimeUnit = TimeUnit.SECONDS) {
+    @Throws(IllegalStateException::class)
+    fun shutDownAwait(timeout: Long = 30, unit: TimeUnit = TimeUnit.SECONDS) {
+        check(timeout > 0) { "timeout should be larger than 0" }
+
         evictionPeriodic.shutdown()
         ioThread.shutdown()
 
-        if (timeout > 0) {
-            evictionPeriodic.awaitTermination(timeout, unit)
-            ioThread.awaitTermination(timeout, unit)
-        }
+        evictionPeriodic.awaitTermination(timeout, unit)
+        ioThread.awaitTermination(timeout, unit)
     }
 
     fun shutDownNow(): List<Runnable> {
@@ -70,13 +79,13 @@ class Storage {
     fun <T> get(key: String): Future<T> {
         val promise = Promise.promise<T>()
 
-        if (storage.isEmpty()) {
-            promise.fail("cache storage is empty")
-            return promise.future()
-        }
-
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.fail("Cache storage is empty")
+                    return@submit
+                }
+
                 if (storage.containsKey(key)) {
                     val data = storage[key]
                     try {
@@ -105,13 +114,13 @@ class Storage {
     fun <T> get(predicate: (T) -> Boolean): Future<T> {
         val promise = Promise.promise<T>()
 
-        if (storage.isEmpty()) {
-            promise.fail("cache storage is empty")
-            return promise.future()
-        }
-
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.fail("Cache storage is empty")
+                    return@submit
+                }
+
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
                     val data = iterator.next().value
@@ -137,13 +146,13 @@ class Storage {
     fun get(vararg keys: String): Future<HashMap<String, Any>> {
         val promise = Promise.promise<HashMap<String, Any>>()
 
-        if (storage.isEmpty()) {
-            promise.fail("cache storage is empty")
-            return promise.future()
-        }
-
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.fail("Cache storage is empty")
+                    return@submit
+                }
+
                 val hashMap = hashMapOf<String, Any>()
                 for (key in keys) {
                     val data = storage[key]
@@ -165,13 +174,13 @@ class Storage {
     fun getKeys(vararg regexes: Regex): Future<List<String>> {
         val promise = Promise.promise<List<String>>()
 
-        if (regexes.isEmpty()) {
-            promise.complete(emptyList())
-            return promise.future()
-        }
-
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.complete(emptyList())
+                    return@submit
+                }
+
                 val keys = mutableListOf<String>()
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
@@ -195,6 +204,11 @@ class Storage {
 
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.complete(emptyList())
+                    return@submit
+                }
+
                 val keys = mutableListOf<String>()
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
@@ -215,7 +229,9 @@ class Storage {
         val promise = Promise.promise<Int>()
 
         try {
-            ioThread.submit { promise.complete(storage.size) }
+            ioThread.submit {
+                promise.complete(storage.size)
+            }
         } catch (e: Exception) {
             promise.fail(e)
         }
@@ -228,16 +244,16 @@ class Storage {
 
         try {
             ioThread.submit {
-                val iterator = storage.iterator()
-                while (iterator.hasNext()) {
-                    val data = iterator.next()
-                    if (data.key.equals(key, false)) {
-                        promise.complete(true)
-                        return@submit
-                    }
+                if (storage.size == 0) {
+                    promise.fail("Cache storage is empty")
+                    return@submit
                 }
 
-                promise.complete(false)
+                if (storage.containsKey(key)) {
+                    promise.complete(true)
+                } else {
+                    promise.fail("Cache storage does not have $key")
+                }
             }
         } catch (e: Exception) {
             promise.fail(e)
@@ -247,7 +263,7 @@ class Storage {
     }
 
     private fun evict() = safe {
-        if (storage.isEmpty()) {
+        if (storage.size == 0) {
             return@safe
         }
 
@@ -255,7 +271,7 @@ class Storage {
         while (iterator.hasNext()) {
             val data = iterator.next().value
 
-            if (data.addedTime <= 0L) {
+            if (data.ttl <= 0L) {
                 continue
             }
 
@@ -269,13 +285,13 @@ class Storage {
     fun evict(vararg keys: String): Future<Int> {
         val promise = Promise.promise<Int>()
 
-        if (storage.isEmpty()) {
-            promise.complete(0)
-            return promise.future()
-        }
-
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.complete(0)
+                    return@submit
+                }
+
                 var count = 0
                 for (key in keys) {
                     if (storage.containsKey(key)) {
@@ -299,13 +315,13 @@ class Storage {
     fun evictAllExcept(vararg keys: String): Future<Int> {
         val promise = Promise.promise<Int>()
 
-        if (storage.isEmpty()) {
-            promise.complete(0)
-            return promise.future()
-        }
-
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.complete(0)
+                    return@submit
+                }
+
                 var count = 0
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
@@ -330,6 +346,10 @@ class Storage {
 
         try {
             ioThread.submit {
+                if (storage.size == 0) {
+                    promise.complete(0)
+                    return@submit
+                }
                 var count = 0
                 val iterator = storage.iterator()
                 while (iterator.hasNext()) {
