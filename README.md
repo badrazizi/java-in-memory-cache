@@ -1,4 +1,4 @@
-# Single Thread In-Memory Cache for Java(JVM)
+# In-Memory Cache for Java(JVM)
 ### Asynchronous generic thread-safe in-memory cache
 
 ### Features:
